@@ -1,0 +1,16 @@
+/target
+
+# Local tooling state, not project source
+/.claude
+
+# OS cruft
+Thumbs.db
+desktop.ini
+
+# Editor state
+/.vscode
+/.idea
+
+# Report files the analyser itself writes when run from the repo root
+storage-analyser-export.csv
+storage-analyser-export.json
