@@ -53,7 +53,7 @@ pub fn pick(terminal: &mut Term) -> Result<Option<DriveInfo>> {
 const LETTER_COL: usize = 6; // "C:\  "
 const LABEL_COL: usize = 20;
 const PCT_COL: usize = 8;
-const SIZE_COL: usize = 24; // "267.38 GB / 358.20 GB"
+const SIZE_COL: usize = 40; // "267.38 GB / 358.20 GB (90.82 GB free)"
 const MIN_BAR_WIDTH: usize = 8;
 const MAX_BAR_WIDTH: usize = 40;
 
@@ -115,7 +115,12 @@ fn draw(f: &mut ratatui::Frame, drives: &[DriveInfo], selected: usize) {
             spans.push(Span::styled(
                 format!(
                     "{:>width$}",
-                    format!("{} / {}", format_size(d.used_bytes(), DECIMAL), format_size(d.total_bytes, DECIMAL)),
+                    format!(
+                        "{} / {} ({} free)",
+                        format_size(d.used_bytes(), DECIMAL),
+                        format_size(d.total_bytes, DECIMAL),
+                        format_size(d.free_bytes, DECIMAL)
+                    ),
                     width = SIZE_COL
                 ),
                 bold(),
