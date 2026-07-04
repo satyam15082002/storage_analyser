@@ -1,6 +1,7 @@
 mod app;
 mod drive_picker;
 mod keys;
+mod theme;
 mod tree_view;
 
 use std::io::Stdout;
@@ -11,14 +12,18 @@ use std::time::Duration;
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen, SetTitle};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use ratatui::style::Style;
 use ratatui::widgets::{Block, Borders, Padding, Paragraph};
 use ratatui::Terminal;
 
 use crate::scan::{self, Engine, ScanEvent};
 use app::App;
+
+pub const APP_TITLE: &str = "Storage Analyzer";
+pub const APP_BYLINE: &str = "by Satyam Tamrakar";
 
 pub(crate) type Term = Terminal<CrosstermBackend<Stdout>>;
 
@@ -56,7 +61,7 @@ pub fn run(path: Option<PathBuf>, engine: Engine) -> Result<()> {
 fn init_terminal() -> Result<Term> {
     enable_raw_mode()?;
     let mut stdout = std::io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, SetTitle(format!("{APP_TITLE} — {APP_BYLINE}")))?;
     Ok(Terminal::new(CrosstermBackend::new(stdout))?)
 }
 
@@ -168,6 +173,9 @@ fn offer_elevation_if_needed(terminal: &mut Term, path: &std::path::Path, engine
 }
 
 fn draw_elevation_prompt(f: &mut ratatui::Frame, path: &std::path::Path) {
+    use ratatui::style::Modifier;
+
+    f.render_widget(Block::default().style(Style::default().bg(theme::BG)), f.area());
     let area = content_area(f.area());
     let layout = Layout::default()
         .direction(Direction::Vertical)
@@ -178,17 +186,27 @@ fn draw_elevation_prompt(f: &mut ratatui::Frame, path: &std::path::Path) {
         "'{}' is a whole NTFS drive, but this process isn't elevated,\nso the fast MFT scan engine can't run — it would fall back to a\nmuch slower full directory walk.\n\nRelaunch elevated (UAC prompt) for a fast scan instead? (y/N)",
         path.display()
     );
-    let p = Paragraph::new(text).alignment(Alignment::Center).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" Elevation recommended ")
-            .title_alignment(Alignment::Center)
-            .padding(Padding::uniform(1)),
-    );
+    let p = Paragraph::new(text)
+        .style(Style::default().fg(theme::TEXT))
+        .alignment(Alignment::Center)
+        .block(
+            Block::default()
+                .style(Style::default().bg(theme::BG))
+                .borders(Borders::ALL)
+                .border_type(theme::PANEL_BORDER)
+                .border_style(Style::default().fg(theme::ACCENT))
+                .title(" Elevation recommended ")
+                .title_style(Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD))
+                .title_alignment(Alignment::Center)
+                .padding(Padding::uniform(1)),
+        );
     f.render_widget(p, layout[1]);
 }
 
 fn draw_progress(f: &mut ratatui::Frame, count: u64) {
+    use ratatui::style::Modifier;
+
+    f.render_widget(Block::default().style(Style::default().bg(theme::BG)), f.area());
     let area = content_area(f.area());
     let layout = Layout::default()
         .direction(Direction::Vertical)
@@ -196,12 +214,19 @@ fn draw_progress(f: &mut ratatui::Frame, count: u64) {
         .split(area);
 
     let text = format!("Scanning… {} entries processed\n\n(press q to cancel)", count);
-    let p = Paragraph::new(text).alignment(Alignment::Center).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" Storage Analyser ")
-            .title_alignment(Alignment::Center)
-            .padding(Padding::uniform(1)),
-    );
+    let p = Paragraph::new(text)
+        .style(Style::default().fg(theme::TEXT))
+        .alignment(Alignment::Center)
+        .block(
+            Block::default()
+                .style(Style::default().bg(theme::BG))
+                .borders(Borders::ALL)
+                .border_type(theme::PANEL_BORDER)
+                .border_style(Style::default().fg(theme::ACCENT))
+                .title(format!(" {APP_TITLE} "))
+                .title_style(Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD))
+                .title_alignment(Alignment::Center)
+                .padding(Padding::uniform(1)),
+        );
     f.render_widget(p, layout[1]);
 }

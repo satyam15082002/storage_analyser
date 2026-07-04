@@ -1,16 +1,18 @@
 use humansize::{format_size, DECIMAL};
 use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Padding, Paragraph, Wrap};
 use ratatui::Frame;
 
-use super::app::{App, Mode};
+use super::app::{App, Mode, ViewWidth};
+use super::theme;
 use crate::model::NodeId;
 
-/// Fixed-width columns in the contents list: " 100.0% " and a right-aligned size field.
-/// The name column and the bar get whatever's left of the terminal width, so wide
-/// terminals aren't left with dead space on the right.
+/// Fixed-width columns in the contents list: a leading type icon, a right-aligned size
+/// field, and " 100.0% ". The name column and the bar get whatever's left of the terminal
+/// width, so wide terminals aren't left with dead space on the right.
+const ICON_COL: usize = 3;
 const PCT_COL: usize = 9;
 const SIZE_COL: usize = 12;
 const MIN_NAME_COL: usize = 10;
@@ -18,7 +20,14 @@ const MIN_BAR_WIDTH: usize = 8;
 const MAX_BAR_WIDTH: usize = 40;
 
 pub fn draw(f: &mut Frame, app: &App) {
-    let area = super::content_area(f.area());
+    // Paint the full frame with our own background so the look is consistent regardless of
+    // the terminal profile's default colors, then lay content out inside it.
+    f.render_widget(Block::default().style(Style::default().bg(theme::BG)), f.area());
+
+    let area = match app.view_width {
+        ViewWidth::Compact => super::content_area(f.area()),
+        ViewWidth::Wide => f.area(),
+    };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(3), Constraint::Length(2)])
@@ -33,23 +42,37 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 }
 
+fn themed_block(title: String) -> Block<'static> {
+    Block::default()
+        .style(Style::default().bg(theme::BG))
+        .borders(Borders::ALL)
+        .border_type(theme::PANEL_BORDER)
+        .border_style(Style::default().fg(theme::BORDER))
+        .title(title)
+        .title_style(Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD))
+        .title_alignment(Alignment::Center)
+        .padding(Padding::horizontal(1))
+}
+
 fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     let node = &app.arena.nodes[app.current];
     let path = app.breadcrumb();
-    let title = format!(
-        " {}  —  {} total  —  {} items  —  engine: {} ",
-        path.display(),
-        format_size(node.size, DECIMAL),
-        node.file_count,
-        app.engine_used,
-    );
-    let header = Paragraph::new(title).alignment(Alignment::Center).block(
-        Block::default()
-            .borders(Borders::ALL)
-            .title(" Storage Analyser ")
-            .title_alignment(Alignment::Center)
-            .padding(Padding::horizontal(1)),
-    );
+    let sep = Span::styled(" │ ", Style::default().fg(theme::BORDER));
+    let title = Line::from(vec![
+        Span::styled(format!("{}", path.display()), Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)),
+        sep.clone(),
+        Span::styled(format_size(node.size, DECIMAL), Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)),
+        Span::styled(" total", Style::default().fg(theme::SUBTEXT)),
+        sep.clone(),
+        Span::styled(format!("{}", node.file_count), Style::default().fg(theme::TEXT)),
+        Span::styled(" items", Style::default().fg(theme::SUBTEXT)),
+        sep,
+        Span::styled("engine ", Style::default().fg(theme::SUBTEXT)),
+        Span::styled(app.engine_used, Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)),
+    ]);
+    let header = Paragraph::new(title)
+        .alignment(Alignment::Center)
+        .block(themed_block(format!(" {}  ·  {} ", super::APP_TITLE, super::APP_BYLINE)));
     f.render_widget(header, area);
 }
 
@@ -61,7 +84,7 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
     let inner_width = area.width.saturating_sub(4) as usize;
     let bar_width = ((inner_width as f64 * 0.28) as usize).clamp(MIN_BAR_WIDTH, MAX_BAR_WIDTH);
     let name_width = inner_width
-        .saturating_sub(bar_width + PCT_COL + SIZE_COL)
+        .saturating_sub(ICON_COL + bar_width + PCT_COL + SIZE_COL)
         .max(MIN_NAME_COL);
 
     let items: Vec<ListItem> = kids
@@ -72,26 +95,26 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
             let filled = (frac * bar_width as f64).round() as usize;
             let bar: String = "█".repeat(filled) + &"░".repeat(bar_width - filled);
 
-            let marker = if n.is_reparse_point {
-                " ↪"
+            let icon = if n.is_reparse_point {
+                theme::ICON_REPARSE
             } else if n.is_dir {
-                "/"
+                theme::ICON_DIR
             } else {
-                " "
+                theme::ICON_FILE
             };
-            let name = format!("{}{}", n.name, marker);
 
-            let color = size_color(frac);
+            let color = theme::size_color(frac);
             let line = Line::from(vec![
+                Span::raw(format!("{icon} ")),
                 Span::styled(
-                    format!("{:<width$}", truncate(&name, name_width), width = name_width),
-                    Style::default().fg(Color::White),
+                    format!("{:<width$}", truncate(&n.name, name_width), width = name_width),
+                    Style::default().fg(theme::TEXT),
                 ),
                 Span::styled(bar, Style::default().fg(color)),
-                Span::raw(format!(" {:>6.1}% ", frac * 100.0)),
+                Span::styled(format!(" {:>6.1}% ", frac * 100.0), Style::default().fg(theme::SUBTEXT)),
                 Span::styled(
                     format!("{:>width$}", format_size(n.size, DECIMAL), width = SIZE_COL),
-                    Style::default().fg(Color::Gray),
+                    Style::default().fg(theme::SUBTEXT).add_modifier(Modifier::BOLD),
                 ),
             ]);
             ListItem::new(line)
@@ -104,14 +127,11 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
     }
 
     let list = List::new(items)
-        .block(
-            Block::default()
-                .borders(Borders::ALL)
-                .title(" contents (Enter: open, Backspace: up) ")
-                .title_alignment(Alignment::Center)
-                .padding(Padding::horizontal(1)),
-        )
-        .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+        .style(Style::default().bg(theme::BG))
+        .block(themed_block(" contents (Enter: open, Backspace: up) ".to_string()))
+        // No `.fg(...)` here: `List` patches this style onto already-rendered cells, and any
+        // fg set here would stomp the bar's own size-color, per-span, on the selected row.
+        .highlight_style(Style::default().bg(theme::BG_SELECTED).add_modifier(Modifier::BOLD));
 
     f.render_stateful_widget(list, area, &mut state);
 }
@@ -123,12 +143,18 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         Mode::Info(_) => "press any key to close".to_string(),
         Mode::Browsing => app.status.clone().unwrap_or_else(|| {
             format!(
-                "↑/↓ move  →/Enter open  ←/Backspace up  b: drives  i: info  s: sort ({})  /: filter  e: export  d: delete  q: quit",
-                app.sort.label()
+                "↑/↓ move  →/Enter open  ←/Backspace up  b: drives  i: info  s: sort ({})  v: view ({})  /: filter  e: export  d: delete  q: quit",
+                app.sort.label(),
+                app.view_width.label(),
             )
         }),
     };
-    let footer = Paragraph::new(text).alignment(Alignment::Center);
+    let style = if app.status.is_some() && matches!(app.mode, Mode::Browsing) {
+        Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(theme::SUBTEXT)
+    };
+    let footer = Paragraph::new(text).style(style).alignment(Alignment::Center);
     f.render_widget(footer, area);
 }
 
@@ -146,26 +172,31 @@ fn draw_info_popup(f: &mut Frame, app: &App, id: NodeId, area: Rect) {
         "File"
     };
 
+    let label = Style::default().fg(theme::SUBTEXT);
+    let value = Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD);
     let mut lines = vec![
-        format!("Name:      {}", n.name),
-        format!("Path:      {}", path.display()),
-        format!("Type:      {kind}"),
-        format!("Size:      {} ({:.1}% of parent)", format_size(n.size, DECIMAL), frac),
-        format!("On disk:   {}", format_size(n.allocated_size, DECIMAL)),
+        Line::from(vec![Span::styled("Name      ", label), Span::styled(n.name.clone(), value)]),
+        Line::from(vec![Span::styled("Path      ", label), Span::styled(path.display().to_string(), value)]),
+        Line::from(vec![Span::styled("Type      ", label), Span::styled(kind, value)]),
+        Line::from(vec![
+            Span::styled("Size      ", label),
+            Span::styled(format_size(n.size, DECIMAL), value),
+            Span::styled(format!("  ({:.1}% of parent)", frac), label),
+        ]),
+        Line::from(vec![Span::styled("On disk   ", label), Span::styled(format_size(n.allocated_size, DECIMAL), value)]),
     ];
     if n.is_dir {
-        lines.push(format!("Items:     {}", n.file_count));
-        lines.push(format!("Children:  {}", n.children.len()));
+        lines.push(Line::from(vec![Span::styled("Items     ", label), Span::styled(format!("{}", n.file_count), value)]));
+        lines.push(Line::from(vec![
+            Span::styled("Children  ", label),
+            Span::styled(format!("{}", n.children.len()), value),
+        ]));
     }
 
     let popup = centered_rect(70, 50, area);
     f.render_widget(Clear, popup);
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(" Details (any key to close) ")
-        .title_alignment(Alignment::Center)
-        .padding(Padding::uniform(1));
-    let text = Paragraph::new(lines.join("\n")).block(block).wrap(Wrap { trim: false });
+    let block = themed_block(" Details (any key to close) ".to_string()).padding(Padding::uniform(1));
+    let text = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
     f.render_widget(text, popup);
 }
 
@@ -186,16 +217,6 @@ fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
             Constraint::Percentage((100 - percent_x) / 2),
         ])
         .split(vertical[1])[1]
-}
-
-fn size_color(frac: f64) -> Color {
-    if frac > 0.5 {
-        Color::Red
-    } else if frac > 0.2 {
-        Color::Yellow
-    } else {
-        Color::Green
-    }
 }
 
 fn truncate(s: &str, max: usize) -> String {

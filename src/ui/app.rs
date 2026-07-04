@@ -34,6 +34,31 @@ pub enum Mode {
     Info(NodeId),
 }
 
+/// Whether the browsing view is capped to a centered, web-style max-width column
+/// (`Compact`, the default) or stretches to the full terminal width (`Wide`). Toggled
+/// with `v`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ViewWidth {
+    Compact,
+    Wide,
+}
+
+impl ViewWidth {
+    pub fn toggled(self) -> ViewWidth {
+        match self {
+            ViewWidth::Compact => ViewWidth::Wide,
+            ViewWidth::Wide => ViewWidth::Compact,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ViewWidth::Compact => "compact",
+            ViewWidth::Wide => "wide",
+        }
+    }
+}
+
 pub struct App {
     pub arena: FsArena,
     pub engine_used: &'static str,
@@ -46,6 +71,7 @@ pub struct App {
     pub should_quit: bool,
     /// Set when the user asks to go back to the drive picker instead of quitting outright.
     pub want_drive_picker: bool,
+    pub view_width: ViewWidth,
 }
 
 impl App {
@@ -62,6 +88,7 @@ impl App {
             status: None,
             should_quit: false,
             want_drive_picker: false,
+            view_width: ViewWidth::Compact,
         }
     }
 

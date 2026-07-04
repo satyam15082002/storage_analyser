@@ -17,9 +17,16 @@ use humansize::{format_size, DECIMAL};
 
 use scan::Engine;
 
-/// High-performance Windows storage analyser: find out what's taking up disk space.
+/// Storage Analyzer — by Satyam Tamrakar
+///
+/// High-performance Windows storage analyzer: find out what's taking up disk space.
 #[derive(Parser)]
-#[command(name = "storage-analyser", version)]
+#[command(
+    name = "storage-analyzer",
+    version,
+    author = "Satyam Tamrakar",
+    about = "Storage Analyzer — by Satyam Tamrakar"
+)]
 struct Cli {
     /// Path to analyse. If omitted, shows an interactive drive picker (or, in
     /// `--top`/`--export` headless mode, a text-based one).

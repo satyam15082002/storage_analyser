@@ -51,6 +51,7 @@ fn handle_browsing(app: &mut App, key: KeyEvent) {
                 app.mode = Mode::Info(id);
             }
         }
+        KeyCode::Char('v') => app.view_width = app.view_width.toggled(),
         _ => {}
     }
 }
@@ -104,7 +105,7 @@ fn handle_confirm_delete(app: &mut App, key: KeyEvent) {
 }
 
 fn export_current(app: &mut App) {
-    let dest = std::path::PathBuf::from("storage-analyser-export.csv");
+    let dest = std::path::PathBuf::from("storage-analyzer-export.csv");
     match crate::export::export_csv(&app.arena, app.current, &dest) {
         Ok(()) => app.status = Some(format!("Exported to {}", dest.display())),
         Err(e) => app.status = Some(format!("Export failed: {e}")),

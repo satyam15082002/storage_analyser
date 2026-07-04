@@ -1,10 +1,11 @@
 [package]
-name = "storage-analyser"
+name = "storage-analyzer"
 version = "0.1.0"
 edition = "2021"
+authors = ["Satyam Tamrakar"]
 
 [[bin]]
-name = "storage-analyser"
+name = "storage-analyzer"
 path = "src/main.rs"
 
 [profile.release]
