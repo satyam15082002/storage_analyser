@@ -1,3 +1,4 @@
+mod drives;
 mod export;
 mod mft;
 mod model;
@@ -20,7 +21,8 @@ use scan::Engine;
 #[derive(Parser)]
 #[command(name = "storage-analyser", version)]
 struct Cli {
-    /// Path to analyse. Defaults to the system drive root (e.g. `C:\`).
+    /// Path to analyse. If omitted, shows an interactive drive picker (or, in
+    /// `--top`/`--export` headless mode, a text-based one).
     path: Option<PathBuf>,
 
     /// Scan engine to use. `auto` picks the NTFS MFT fast path when possible (whole-drive
@@ -41,15 +43,57 @@ struct Cli {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    let path = cli.path.clone().unwrap_or_else(default_path);
-
-    maybe_offer_elevation(&path, cli.engine);
 
     if cli.export.is_some() || cli.top.is_some() {
+        let path = match cli.path.clone() {
+            Some(p) => p,
+            None => pick_drive_headless()?,
+        };
+        maybe_offer_elevation(&path, cli.engine);
         return run_headless(&path, cli.engine, cli.export, cli.top);
     }
 
-    ui::run(path, cli.engine)
+    // In interactive mode, an explicit path skips the console prompt below (the TUI
+    // handles its own elevation prompt after the on-screen drive picker if none was given).
+    if let Some(path) = &cli.path {
+        maybe_offer_elevation(path, cli.engine);
+    }
+
+    ui::run(cli.path, cli.engine)
+}
+
+/// Text-mode drive picker for headless (`--top`/`--export`) runs, where there's no TUI to
+/// show the interactive picker in.
+fn pick_drive_headless() -> Result<PathBuf> {
+    let drives = drives::list_drives();
+    if drives.is_empty() {
+        return Ok(default_path());
+    }
+
+    eprintln!("Available drives:");
+    for d in &drives {
+        eprintln!(
+            "  {}:\\  {:<20} {} free of {}",
+            d.letter,
+            d.label,
+            humansize::format_size(d.free_bytes, DECIMAL),
+            humansize::format_size(d.total_bytes, DECIMAL)
+        );
+    }
+    eprint!("Drive to analyse [{}]: ", drives[0].letter);
+    use std::io::Write;
+    let _ = std::io::stderr().flush();
+
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer)?;
+    let choice = answer.trim().trim_end_matches([':', '\\']).to_uppercase();
+
+    let letter = choice.chars().next().unwrap_or(drives[0].letter);
+    Ok(drives
+        .iter()
+        .find(|d| d.letter == letter)
+        .map(|d| d.path())
+        .unwrap_or_else(|| drives[0].path()))
 }
 
 /// If the target is a whole NTFS drive but the process isn't elevated, the MFT fast path

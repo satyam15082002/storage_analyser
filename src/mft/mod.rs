@@ -56,7 +56,21 @@ pub fn scan_volume(path: &Path, counter: &AtomicU64) -> Result<FsArena> {
     const CHUNK_CLUSTERS: u64 = 2048; // ~8-32MB depending on cluster size: amortizes syscalls
 
     'extents: for extent in &extents {
-        let Some(lcn) = extent.lcn else { continue };
+        let Some(lcn) = extent.lcn else {
+            // Sparse ("hole") run: no clusters to read, but the virtual MFT stream still
+            // advances past this many records. Skipping it without padding `parsed` would
+            // shift every subsequent index out of sync with its true MFT record number,
+            // corrupting every parent/child reference from here on.
+            let placeholder_records =
+                (extent.cluster_count * boot.bytes_per_cluster) / boot.mft_record_size as u64;
+            for _ in 0..placeholder_records {
+                if parsed.len() as u64 >= total_records {
+                    break 'extents;
+                }
+                parsed.push(None);
+            }
+            continue;
+        };
         let mut remaining = extent.cluster_count;
         let mut cluster_cursor = lcn;
 

@@ -6,7 +6,7 @@
 # OS cruft
 Thumbs.db
 desktop.ini
-
+v2/
 # Editor state
 /.vscode
 /.idea

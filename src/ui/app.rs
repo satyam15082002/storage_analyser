@@ -31,6 +31,7 @@ pub enum Mode {
     Browsing,
     Filtering,
     ConfirmDelete,
+    Info(NodeId),
 }
 
 pub struct App {
@@ -43,6 +44,8 @@ pub struct App {
     pub mode: Mode,
     pub status: Option<String>,
     pub should_quit: bool,
+    /// Set when the user asks to go back to the drive picker instead of quitting outright.
+    pub want_drive_picker: bool,
 }
 
 impl App {
@@ -58,7 +61,17 @@ impl App {
             mode: Mode::Browsing,
             status: None,
             should_quit: false,
+            want_drive_picker: false,
         }
+    }
+
+    pub fn is_at_root(&self) -> bool {
+        self.arena.nodes[self.current].parent == crate::model::NO_PARENT
+    }
+
+    pub fn back_to_drive_picker(&mut self) {
+        self.want_drive_picker = true;
+        self.should_quit = true;
     }
 
     /// Children of the current node, sorted per `self.sort` and filtered by `self.filter`

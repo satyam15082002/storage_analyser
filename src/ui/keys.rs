@@ -10,6 +10,7 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
     match app.mode {
         Mode::Filtering => handle_filtering(app, key),
         Mode::ConfirmDelete => handle_confirm_delete(app, key),
+        Mode::Info(_) => handle_info(app, key),
         Mode::Browsing => handle_browsing(app, key),
     }
 }
@@ -23,7 +24,14 @@ fn handle_browsing(app: &mut App, key: KeyEvent) {
         KeyCode::PageUp => app.move_selection(-10),
         KeyCode::PageDown => app.move_selection(10),
         KeyCode::Right | KeyCode::Enter | KeyCode::Char('l') => app.descend(),
-        KeyCode::Left | KeyCode::Backspace | KeyCode::Char('h') => app.ascend(),
+        KeyCode::Left | KeyCode::Backspace | KeyCode::Char('h') => {
+            if app.is_at_root() {
+                app.back_to_drive_picker();
+            } else {
+                app.ascend();
+            }
+        }
+        KeyCode::Char('b') => app.back_to_drive_picker(),
         KeyCode::Char('s') => {
             app.sort = app.sort.next();
             app.selected = 0;
@@ -38,8 +46,18 @@ fn handle_browsing(app: &mut App, key: KeyEvent) {
                 app.mode = Mode::ConfirmDelete;
             }
         }
+        KeyCode::Char('i') => {
+            if let Some(id) = app.selected_node() {
+                app.mode = Mode::Info(id);
+            }
+        }
         _ => {}
     }
+}
+
+fn handle_info(app: &mut App, _key: KeyEvent) {
+    // Any key dismisses the info popup.
+    app.mode = Mode::Browsing;
 }
 
 fn handle_filtering(app: &mut App, key: KeyEvent) {
