@@ -32,11 +32,12 @@ pub fn pick(terminal: &mut Term) -> Result<Option<DriveInfo>> {
                 }
                 match key.code {
                     KeyCode::Char('q') | KeyCode::Esc => return Ok(None),
+                    // Wraps around at both ends instead of clamping and getting stuck.
                     KeyCode::Up | KeyCode::Char('k') => {
-                        selected = selected.saturating_sub(1);
+                        selected = (selected as i64 - 1).rem_euclid(drives.len() as i64) as usize;
                     }
                     KeyCode::Down | KeyCode::Char('j') => {
-                        selected = (selected + 1).min(drives.len() - 1);
+                        selected = (selected + 1) % drives.len();
                     }
                     KeyCode::Enter => {
                         return Ok(drives.into_iter().nth(selected));

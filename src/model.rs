@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Index into `FsArena::nodes`. `usize::MAX` is used as a sentinel for "no parent".
 pub type NodeId = usize;
@@ -89,6 +89,24 @@ impl FsArena {
             path.push(part);
         }
         path
+    }
+
+    /// Finds the node at `target` by descending from the root, matching one path component
+    /// (by name) at a time — used to carry the current browsing position over into a fresh
+    /// `FsArena` after a background re-scan replaces this one, since `NodeId`s from the old
+    /// arena aren't valid indices into the new one. Falls back to the caller mapping to the
+    /// root if a component along the way no longer exists (e.g. a folder got deleted).
+    pub fn find_path(&self, target: &Path) -> Option<NodeId> {
+        let root_path = self.path_of(self.root);
+        let rel = target.strip_prefix(&root_path).ok()?;
+
+        let mut current = self.root;
+        for component in rel.components() {
+            let std::path::Component::Normal(os_str) = component else { continue };
+            let name = os_str.to_string_lossy();
+            current = *self.nodes[current].children.iter().find(|&&id| self.nodes[id].name == name)?;
+        }
+        Some(current)
     }
 
     /// Aggregates directory sizes/file counts bottom-up. Must be called once after the

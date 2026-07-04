@@ -71,6 +71,9 @@ pub struct App {
     pub should_quit: bool,
     /// Set when the user asks to go back to the drive picker instead of quitting outright.
     pub want_drive_picker: bool,
+    /// Set when the user asks to force a fresh re-scan of the current root (bypassing the
+    /// cached result) instead of quitting outright.
+    pub want_rescan: bool,
     pub view_width: ViewWidth,
 }
 
@@ -88,6 +91,7 @@ impl App {
             status: None,
             should_quit: false,
             want_drive_picker: false,
+            want_rescan: false,
             view_width: ViewWidth::Compact,
         }
     }
@@ -98,6 +102,11 @@ impl App {
 
     pub fn back_to_drive_picker(&mut self) {
         self.want_drive_picker = true;
+        self.should_quit = true;
+    }
+
+    pub fn rescan(&mut self) {
+        self.want_rescan = true;
         self.should_quit = true;
     }
 
@@ -148,14 +157,16 @@ impl App {
         self.selected = siblings.iter().position(|&id| id == prev_child).unwrap_or(0);
     }
 
+    /// Moves the selection by `delta`, wrapping around at both ends (so pressing up at the
+    /// first item jumps to the last, and vice versa) rather than clamping and getting stuck.
     pub fn move_selection(&mut self, delta: i64) {
         let len = self.visible_children().len();
         if len == 0 {
             self.selected = 0;
             return;
         }
-        let new = self.selected as i64 + delta;
-        self.selected = new.clamp(0, len as i64 - 1) as usize;
+        let new = (self.selected as i64 + delta).rem_euclid(len as i64);
+        self.selected = new as usize;
     }
 
     pub fn selected_node(&self) -> Option<NodeId> {

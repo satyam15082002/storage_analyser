@@ -53,6 +53,7 @@ fn handle_browsing(app: &mut App, key: KeyEvent) {
         }
         KeyCode::Char('v') => app.view_width = app.view_width.toggled(),
         KeyCode::Char('o') => open_selected(app),
+        KeyCode::Char('r') => app.rescan(),
         _ => {}
     }
 }

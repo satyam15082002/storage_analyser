@@ -4,6 +4,7 @@ mod keys;
 mod theme;
 mod tree_view;
 
+use std::collections::HashMap;
 use std::io::Stdout;
 use std::path::PathBuf;
 use std::sync::mpsc;
@@ -72,10 +73,19 @@ fn restore_terminal(terminal: &mut Term) -> Result<()> {
     Ok(())
 }
 
+/// A previously completed scan, kept around for the rest of the session so re-selecting the
+/// same drive/folder from the picker is instant instead of re-scanning from scratch. Session
+/// only (not persisted to disk) — a fresh run of the app always scans fresh at least once.
+struct CachedScan {
+    arena: crate::model::FsArena,
+    engine_used: &'static str,
+}
+
 fn run_inner(terminal: &mut Term, path: Option<PathBuf>, engine: Engine) -> Result<()> {
     // `next_path` is the CLI-supplied path the first time through; every subsequent loop
     // (the user pressed 'b'/Backspace-at-root to go back) always re-shows the picker.
     let mut next_path = path;
+    let mut cache: HashMap<PathBuf, CachedScan> = HashMap::new();
 
     loop {
         let target = match next_path.take() {
@@ -86,42 +96,57 @@ fn run_inner(terminal: &mut Term, path: Option<PathBuf>, engine: Engine) -> Resu
             },
         };
 
-        if !offer_elevation_if_needed(terminal, &target, engine)? {
-            return Ok(()); // relaunching elevated; this process is done
-        }
+        let (mut app, mut background_rx) = if let Some(cached) = cache.remove(&target) {
+            let app = App::new(cached.arena, cached.engine_used);
 
-        let target_display = target.display().to_string();
-        let (tx, rx) = mpsc::channel::<ScanEvent>();
-        scan::spawn(target, engine, tx);
+            // Kick off a fresh scan right away so stale cached data gets silently swapped
+            // out for current data as soon as it's ready, instead of making the user
+            // remember to hit 'r'. Skips the elevation prompt on purpose: it's a silent
+            // background op, not something worth interrupting the user for. Deliberately
+            // doesn't set `app.status` here — that would occupy the footer's keybinding
+            // hints with a passive status message the moment the screen opens, right when
+            // the user most wants to see what keys are available.
+            let (tx, rx) = mpsc::channel::<ScanEvent>();
+            scan::spawn(target.clone(), engine, tx);
+            (app, Some(rx))
+        } else {
+            // Only a real (not cached) scan needs the fast-path/elevation trade-off prompt.
+            if !offer_elevation_if_needed(terminal, &target, engine)? {
+                return Ok(()); // relaunching elevated; this process is done
+            }
 
-        let mut progress: u64 = 0;
-        let mut frame: u64 = 0;
-        let started = Instant::now();
-        let outcome = loop {
-            let elapsed = started.elapsed().as_secs_f64();
-            terminal.draw(|f| draw_progress(f, &target_display, progress, frame, elapsed))?;
-            frame += 1;
+            let target_display = target.display().to_string();
+            let (tx, rx) = mpsc::channel::<ScanEvent>();
+            scan::spawn(target.clone(), engine, tx);
 
-            if event::poll(Duration::from_millis(80))? {
-                if let Event::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press && matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) {
-                        return Ok(());
+            let mut progress: u64 = 0;
+            let mut frame: u64 = 0;
+            let started = Instant::now();
+            let outcome = loop {
+                let elapsed = started.elapsed().as_secs_f64();
+                terminal.draw(|f| draw_progress(f, &target_display, progress, frame, elapsed))?;
+                frame += 1;
+
+                if event::poll(Duration::from_millis(80))? {
+                    if let Event::Key(key) = event::read()? {
+                        if key.kind == KeyEventKind::Press && matches!(key.code, KeyCode::Char('q') | KeyCode::Esc) {
+                            return Ok(());
+                        }
                     }
                 }
-            }
 
-            match rx.try_recv() {
-                Ok(ScanEvent::Progress(n)) => progress = n,
-                Ok(ScanEvent::Done(result)) => break result,
-                Err(mpsc::TryRecvError::Empty) => {}
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    return Err(anyhow::anyhow!("scan thread ended unexpectedly"))
+                match rx.try_recv() {
+                    Ok(ScanEvent::Progress(n)) => progress = n,
+                    Ok(ScanEvent::Done(result)) => break result,
+                    Err(mpsc::TryRecvError::Empty) => {}
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        return Err(anyhow::anyhow!("scan thread ended unexpectedly"))
+                    }
                 }
-            }
+            };
+            let outcome = outcome?;
+            (App::new(outcome.arena, outcome.engine_used), None)
         };
-
-        let outcome = outcome?;
-        let mut app = App::new(outcome.arena, outcome.engine_used);
 
         while !app.should_quit {
             terminal.draw(|f| tree_view::draw(f, &app))?;
@@ -133,12 +158,40 @@ fn run_inner(terminal: &mut Term, path: Option<PathBuf>, engine: Engine) -> Resu
                     }
                 }
             }
+
+            // Drain any background refresh silently; only the final `Done` matters here
+            // (no progress bar for a background op — that would defeat the point of it
+            // being unobtrusive). Remaps the current browsing position into the fresh
+            // arena by path, since old `NodeId`s aren't valid indices into a new arena.
+            // No status message either — same reasoning as the cache-hit path above: it
+            // would just bump the keybinding hints out of the footer for something the
+            // user didn't ask for.
+            if let Some(rx) = &background_rx {
+                if let Ok(ScanEvent::Done(result)) = rx.try_recv() {
+                    if let Ok(outcome) = result {
+                        let old_path = app.arena.path_of(app.current);
+                        app.current = outcome.arena.find_path(&old_path).unwrap_or(outcome.arena.root);
+                        app.arena = outcome.arena;
+                        app.engine_used = outcome.engine_used;
+                        app.selected = 0;
+                    }
+                    background_rx = None;
+                }
+            }
         }
 
-        if !app.want_drive_picker {
-            return Ok(());
+        if app.want_rescan {
+            cache.remove(&target); // drop any stale entry so the next iteration scans fresh
+            next_path = Some(target);
+            continue;
         }
-        // else: loop back around and show the drive picker again
+
+        if app.want_drive_picker {
+            cache.insert(target, CachedScan { arena: app.arena, engine_used: app.engine_used });
+            continue; // loop back around and show the drive picker again
+        }
+
+        return Ok(());
     }
 }
 

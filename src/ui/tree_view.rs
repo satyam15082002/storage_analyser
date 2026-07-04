@@ -149,7 +149,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         Mode::Info(_) => "press any key to close".to_string(),
         Mode::Browsing => app.status.clone().unwrap_or_else(|| {
             format!(
-                "↑/↓ move  →/Enter open  ←/Backspace up  b: drives  i: info  o: explorer  s: sort ({})  v: view ({})  /: filter  e: export  d: delete  q: quit",
+                "↑/↓ move  →/Enter open  ←/Backspace up  b: drives  r: refresh  i: info  o: explorer  s: sort ({})  v: view ({})  /: filter  e: export  d: delete  q: quit",
                 app.sort.label(),
                 app.view_width.label(),
             )
