@@ -3,10 +3,10 @@ use std::time::Duration;
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use humansize::{format_size, DECIMAL};
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Padding, Paragraph};
 
 use crate::drives::{list_drives, DriveInfo};
 
@@ -52,14 +52,21 @@ const MAX_BAR_WIDTH: usize = 50;
 const LABEL_COL: usize = 22;
 
 fn draw(f: &mut ratatui::Frame, drives: &[DriveInfo], selected: usize) {
-    let area = f.area();
+    let area = super::content_area(f.area());
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(3), Constraint::Length(1)])
         .split(area);
 
     let header = Paragraph::new(" Select a drive to analyse ")
-        .block(Block::default().borders(Borders::ALL).title(" Storage Analyser "));
+        .alignment(Alignment::Center)
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Storage Analyser ")
+                .title_alignment(Alignment::Center)
+                .padding(Padding::horizontal(1)),
+        );
     f.render_widget(header, chunks[0]);
 
     let inner_width = chunks[1].width.saturating_sub(4) as usize;
@@ -103,10 +110,16 @@ fn draw(f: &mut ratatui::Frame, drives: &[DriveInfo], selected: usize) {
     state.select(Some(selected));
 
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(" drives "))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" drives ")
+                .title_alignment(Alignment::Center)
+                .padding(Padding::horizontal(1)),
+        )
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
     f.render_stateful_widget(list, chunks[1], &mut state);
 
-    let footer = Paragraph::new("↑/↓ select  Enter: analyse  q: quit");
+    let footer = Paragraph::new("↑/↓ select  Enter: analyse  q: quit").alignment(Alignment::Center);
     f.render_widget(footer, chunks[2]);
 }

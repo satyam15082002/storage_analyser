@@ -1,8 +1,8 @@
 use humansize::{format_size, DECIMAL};
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Padding, Paragraph, Wrap};
 use ratatui::Frame;
 
 use super::app::{App, Mode};
@@ -18,7 +18,7 @@ const MIN_BAR_WIDTH: usize = 8;
 const MAX_BAR_WIDTH: usize = 40;
 
 pub fn draw(f: &mut Frame, app: &App) {
-    let area = f.area();
+    let area = super::content_area(f.area());
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Length(3), Constraint::Min(3), Constraint::Length(2)])
@@ -43,7 +43,13 @@ fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         node.file_count,
         app.engine_used,
     );
-    let header = Paragraph::new(title).block(Block::default().borders(Borders::ALL).title(" Storage Analyser "));
+    let header = Paragraph::new(title).alignment(Alignment::Center).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Storage Analyser ")
+            .title_alignment(Alignment::Center)
+            .padding(Padding::horizontal(1)),
+    );
     f.render_widget(header, area);
 }
 
@@ -51,7 +57,7 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
     let kids = app.visible_children();
     let parent_size = app.arena.nodes[app.current].size.max(1);
 
-    // Inner content width (List renders inside its own border, ~2 cols each side).
+    // Inner content width: 1 col border + 1 col padding on each side.
     let inner_width = area.width.saturating_sub(4) as usize;
     let bar_width = ((inner_width as f64 * 0.28) as usize).clamp(MIN_BAR_WIDTH, MAX_BAR_WIDTH);
     let name_width = inner_width
@@ -98,7 +104,13 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
     }
 
     let list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(" contents (Enter: open, Backspace: up) "))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" contents (Enter: open, Backspace: up) ")
+                .title_alignment(Alignment::Center)
+                .padding(Padding::horizontal(1)),
+        )
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
 
     f.render_stateful_widget(list, area, &mut state);
@@ -116,7 +128,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
             )
         }),
     };
-    let footer = Paragraph::new(text);
+    let footer = Paragraph::new(text).alignment(Alignment::Center);
     f.render_widget(footer, area);
 }
 
@@ -148,7 +160,11 @@ fn draw_info_popup(f: &mut Frame, app: &App, id: NodeId, area: Rect) {
 
     let popup = centered_rect(70, 50, area);
     f.render_widget(Clear, popup);
-    let block = Block::default().borders(Borders::ALL).title(" Details (any key to close) ");
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Details (any key to close) ")
+        .title_alignment(Alignment::Center)
+        .padding(Padding::uniform(1));
     let text = Paragraph::new(lines.join("\n")).block(block).wrap(Wrap { trim: false });
     f.render_widget(text, popup);
 }

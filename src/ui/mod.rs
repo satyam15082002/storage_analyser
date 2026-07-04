@@ -13,14 +13,36 @@ use crossterm::event::{self, Event, KeyCode, KeyEventKind};
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Alignment, Constraint, Direction, Layout};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
+use ratatui::widgets::{Block, Borders, Padding, Paragraph};
 use ratatui::Terminal;
 
 use crate::scan::{self, Engine, ScanEvent};
 use app::App;
 
 pub(crate) type Term = Terminal<CrosstermBackend<Stdout>>;
+
+/// Caps content width the way a responsive website does with a max-width container: on
+/// wide terminals the UI sits centered with side margins instead of stretching bars and
+/// text edge-to-edge; on narrow terminals (below the cap) it just uses the full width, no
+/// margins wasted. 140 columns comfortably fits every screen here without feeling stretched
+/// on ultrawide monitors, while a normal 80-120 column terminal is unaffected.
+const MAX_CONTENT_WIDTH: u16 = 140;
+
+pub(crate) fn content_area(area: Rect) -> Rect {
+    if area.width <= MAX_CONTENT_WIDTH {
+        return area;
+    }
+    let margin = (area.width - MAX_CONTENT_WIDTH) / 2;
+    Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Length(margin),
+            Constraint::Length(MAX_CONTENT_WIDTH),
+            Constraint::Length(margin),
+        ])
+        .split(area)[1]
+}
 
 /// Runs the interactive TUI. If `path` is `None`, shows a drive picker first (the user
 /// didn't specify what to analyse on the command line).
@@ -146,32 +168,40 @@ fn offer_elevation_if_needed(terminal: &mut Term, path: &std::path::Path, engine
 }
 
 fn draw_elevation_prompt(f: &mut ratatui::Frame, path: &std::path::Path) {
-    let area = f.area();
+    let area = content_area(f.area());
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(40), Constraint::Length(6), Constraint::Percentage(40)])
+        .constraints([Constraint::Percentage(40), Constraint::Length(9), Constraint::Percentage(40)])
         .split(area);
 
     let text = format!(
         "'{}' is a whole NTFS drive, but this process isn't elevated,\nso the fast MFT scan engine can't run — it would fall back to a\nmuch slower full directory walk.\n\nRelaunch elevated (UAC prompt) for a fast scan instead? (y/N)",
         path.display()
     );
-    let p = Paragraph::new(text)
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).title(" Elevation recommended "));
+    let p = Paragraph::new(text).alignment(Alignment::Center).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Elevation recommended ")
+            .title_alignment(Alignment::Center)
+            .padding(Padding::uniform(1)),
+    );
     f.render_widget(p, layout[1]);
 }
 
 fn draw_progress(f: &mut ratatui::Frame, count: u64) {
-    let area = f.area();
+    let area = content_area(f.area());
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(45), Constraint::Length(3), Constraint::Percentage(45)])
+        .constraints([Constraint::Percentage(45), Constraint::Length(7), Constraint::Percentage(45)])
         .split(area);
 
     let text = format!("Scanning… {} entries processed\n\n(press q to cancel)", count);
-    let p = Paragraph::new(text)
-        .alignment(Alignment::Center)
-        .block(Block::default().borders(Borders::ALL).title(" Storage Analyser "));
+    let p = Paragraph::new(text).alignment(Alignment::Center).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .title(" Storage Analyser ")
+            .title_alignment(Alignment::Center)
+            .padding(Padding::uniform(1)),
+    );
     f.render_widget(p, layout[1]);
 }
