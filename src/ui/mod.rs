@@ -7,7 +7,7 @@ mod tree_view;
 use std::io::Stdout;
 use std::path::PathBuf;
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use crossterm::event::{self, Event, KeyCode, KeyEventKind};
@@ -90,13 +90,16 @@ fn run_inner(terminal: &mut Term, path: Option<PathBuf>, engine: Engine) -> Resu
             return Ok(()); // relaunching elevated; this process is done
         }
 
+        let target_display = target.display().to_string();
         let (tx, rx) = mpsc::channel::<ScanEvent>();
         scan::spawn(target, engine, tx);
 
         let mut progress: u64 = 0;
         let mut frame: u64 = 0;
+        let started = Instant::now();
         let outcome = loop {
-            terminal.draw(|f| draw_progress(f, progress, frame))?;
+            let elapsed = started.elapsed().as_secs_f64();
+            terminal.draw(|f| draw_progress(f, &target_display, progress, frame, elapsed))?;
             frame += 1;
 
             if event::poll(Duration::from_millis(80))? {
@@ -213,7 +216,23 @@ fn draw_elevation_prompt(f: &mut ratatui::Frame, path: &std::path::Path) {
     f.render_widget(p, layout[1]);
 }
 
-fn draw_progress(f: &mut ratatui::Frame, count: u64, frame: u64) {
+/// Braille spinner frames — the same rotation trick most modern CLIs (npm, cargo, Claude
+/// Code itself) use for "actively working," since a single static line of text reads as
+/// stalled after a couple of seconds even when the underlying work is progressing fine.
+const SPINNER: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+/// Rotating flavor text so a multi-second scan doesn't just sit on one unchanging sentence.
+/// Purely cosmetic — the engine doesn't report *which* phase it's in — but true to what an
+/// MFT/walker scan is actually doing under the hood, so it's not a meaningless platitude.
+const STATUS_MESSAGES: [&str; 5] = [
+    "Reading directory records…",
+    "Walking the file tree…",
+    "Measuring folder sizes…",
+    "Counting bytes…",
+    "Aggregating totals…",
+];
+
+fn draw_progress(f: &mut ratatui::Frame, target: &str, count: u64, frame: u64, elapsed_secs: f64) {
     use ratatui::style::Modifier;
     use ratatui::text::{Line, Span};
 
@@ -221,18 +240,38 @@ fn draw_progress(f: &mut ratatui::Frame, count: u64, frame: u64) {
     let area = content_area(f.area());
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(45), Constraint::Length(8), Constraint::Percentage(45)])
+        .constraints([Constraint::Percentage(38), Constraint::Length(12), Constraint::Percentage(38)])
         .split(area);
+
+    let spinner = SPINNER[(frame as usize) % SPINNER.len()];
+    let message = STATUS_MESSAGES[((frame / 18) as usize) % STATUS_MESSAGES.len()];
+    let rate = if elapsed_secs > 0.15 { count as f64 / elapsed_secs } else { 0.0 };
+
+    let bold_accent = Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD);
+    let bold = Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD);
+    let plain = Style::default().fg(theme::TEXT);
 
     let lines = vec![
         Line::from(vec![
-            Span::styled("Scanning… ", Style::default().fg(theme::TEXT)),
-            Span::styled(format!("{count}"), Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)),
-            Span::styled(" entries processed", Style::default().fg(theme::TEXT)),
+            Span::styled(format!("{spinner} "), bold_accent),
+            Span::styled(target.to_string(), bold),
         ]),
-        Line::from(indeterminate_bar(30, frame)),
+        Line::styled(message, plain),
         Line::from(""),
-        Line::styled("(press q to cancel)", Style::default().fg(theme::TEXT)),
+        Line::from(indeterminate_bar(40, frame)),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled(format!("{count}"), bold_accent),
+            Span::styled(" entries", plain),
+            Span::styled("   ·   ", plain),
+            Span::styled(format!("{rate:.0}"), bold_accent),
+            Span::styled("/sec", plain),
+            Span::styled("   ·   ", plain),
+            Span::styled(format!("{elapsed_secs:.1}s"), bold_accent),
+            Span::styled(" elapsed", plain),
+        ]),
+        Line::from(""),
+        Line::styled("press q to cancel", plain),
     ];
     let p = Paragraph::new(lines).alignment(Alignment::Center).block(
         Block::default()
