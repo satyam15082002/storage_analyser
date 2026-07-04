@@ -1,5 +1,8 @@
 /target
 
+# Installer build output (produced by installer/storage-analyzer.iss)
+/dist
+
 # Local tooling state, not project source
 /.claude
 

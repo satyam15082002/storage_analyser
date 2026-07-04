@@ -70,6 +70,32 @@ fn main() -> Result<()> {
     ui::run(cli.path, cli.engine)
 }
 
+/// If the target is a whole NTFS drive but the process isn't elevated, the MFT fast path
+/// is unavailable (volume handles are admin-only) and the scan will silently fall back to
+/// the much slower recursive walker. Offer to relaunch elevated instead of scanning slow.
+fn maybe_offer_elevation(path: &std::path::Path, engine: Engine) {
+    if engine == Engine::Walk || privileges::is_elevated() {
+        return;
+    }
+    if !scan::is_drive_root(path) || !scan::is_ntfs(path) {
+        return;
+    }
+
+    eprintln!("'{}' is a whole NTFS drive, but this process isn't elevated, so the fast", path.display());
+    eprintln!("MFT scan engine can't run — falling back to a much slower full directory walk.");
+    eprint!("Relaunch elevated (UAC prompt) for a fast scan instead? [y/N] ");
+    use std::io::Write;
+    let _ = std::io::stderr().flush();
+
+    let mut answer = String::new();
+    if std::io::stdin().read_line(&mut answer).is_ok() && answer.trim().eq_ignore_ascii_case("y") {
+        match privileges::relaunch_elevated() {
+            Ok(()) => std::process::exit(0),
+            Err(e) => eprintln!("Could not relaunch elevated: {e}. Continuing with the slower walker."),
+        }
+    }
+}
+
 /// Text-mode drive picker for headless (`--top`/`--export`) runs, where there's no TUI to
 /// show the interactive picker in.
 fn pick_drive_headless() -> Result<PathBuf> {
@@ -102,32 +128,6 @@ fn pick_drive_headless() -> Result<PathBuf> {
         .find(|d| d.letter == letter)
         .map(|d| d.path())
         .unwrap_or_else(|| drives[0].path()))
-}
-
-/// If the target is a whole NTFS drive but the process isn't elevated, the MFT fast path
-/// is unavailable (volume handles are admin-only) and the scan will silently fall back to
-/// the much slower recursive walker. Offer to relaunch elevated instead of scanning slow.
-fn maybe_offer_elevation(path: &std::path::Path, engine: Engine) {
-    if engine == Engine::Walk || privileges::is_elevated() {
-        return;
-    }
-    if !scan::is_drive_root(path) || !scan::is_ntfs(path) {
-        return;
-    }
-
-    eprintln!("'{}' is a whole NTFS drive, but this process isn't elevated, so the fast", path.display());
-    eprintln!("MFT scan engine can't run — falling back to a much slower full directory walk.");
-    eprint!("Relaunch elevated (UAC prompt) for a fast scan instead? [y/N] ");
-    use std::io::Write;
-    let _ = std::io::stderr().flush();
-
-    let mut answer = String::new();
-    if std::io::stdin().read_line(&mut answer).is_ok() && answer.trim().eq_ignore_ascii_case("y") {
-        match privileges::relaunch_elevated() {
-            Ok(()) => std::process::exit(0),
-            Err(e) => eprintln!("Could not relaunch elevated: {e}. Continuing with the slower walker."),
-        }
-    }
 }
 
 fn default_path() -> PathBuf {

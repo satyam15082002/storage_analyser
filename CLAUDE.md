@@ -26,6 +26,18 @@ There is no test suite. Verify changes by running the exe directly (`.\target\re
 
 Kill stray processes before rebuilding if `cargo build` fails with "Access is denied" removing the `.exe` — a previous run is still holding the file open (`Get-Process storage-analyzer | Stop-Process -Force`, may need to retry once).
 
+### Installer
+
+`installer/storage-analyzer.iss` is an Inno Setup script that packages the release exe into `dist\StorageAnalyzerSetup.exe` (Start Menu shortcut, optional desktop shortcut/PATH entry, uninstaller). Compile with `& "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" installer\storage-analyzer.iss` after rebuilding the release binary — the script's `MyAppVersion` is hardcoded and needs to be bumped manually alongside `Cargo.toml`'s version. `dist/` is gitignored, same as `target/`.
+
+`ISCC.exe`'s resource-patching step for `SetupIconFile` intermittently fails with `EndUpdateResource failed ... (110)` on this machine (antivirus real-time scan grabbing a lock on the freshly-written `Setup.exe` mid-patch) — this is unrelated to the icon file's validity; just delete `dist\StorageAnalyzerSetup.exe` and re-run `ISCC.exe` once or twice more.
+
+### App icon
+
+`installer/icon/storage_analyser.png` is the source art. Two different `.ico` files are generated from it (both already committed, regenerate with the scripts below if the PNG changes):
+- `storage_analyser.ico` (multi-resolution 16/32/48/256, PNG-compressed frames via `installer/icon/make_ico.ps1`) — embedded into the compiled exe itself via `build.rs` + the `embed-resource` crate (compiles `installer/icon/app.rc` with `windres`, part of the mingw64 toolchain this project already builds with). This is what Explorer/taskbar/Alt-Tab show for `storage-analyzer.exe`.
+- `storage_analyser_setup.ico` (single 48×48, classic uncompressed DIB via `installer/icon/make_setup_ico.ps1`, using `Bitmap.GetHicon()`) — used only for `SetupIconFile` in the `.iss` script. **Inno Setup's resource updater rejects the PNG-compressed multi-res icon** (fails with the same `EndUpdateResource` error as above, but consistently, not intermittently) — don't reuse the exe's `.ico` here even though it works fine for `build.rs`/`windres`.
+
 ## Architecture
 
 ### Two scan engines, one output shape
@@ -41,7 +53,7 @@ Known correctness trade-off in the MFT engine: it skips `$ATTRIBUTE_LIST`-based 
 ### TUI structure (`src/ui/`)
 
 - **`app.rs`** — `App` holds the scanned `FsArena`, current navigation position (`NodeId`), sort mode, filter text, and UI mode (`Browsing`/`Filtering`/`ConfirmDelete`/`Info(NodeId)`). Pure state + mutation methods; no rendering.
-- **`mod.rs`** — owns the terminal (raw mode / alternate screen), the top-level `run_inner` loop, and the non-interactive screens (drive-elevation prompt, scan-progress screen with an animated indeterminate gradient bar since the walker engine has no known total to show real percentage against).
+- **`mod.rs`** — owns the terminal (raw mode / alternate screen), the top-level `run_inner` loop, and the scan-progress screen (animated indeterminate gradient bar, since the walker engine has no known total to show real percentage against).
 - **`tree_view.rs`** / **`drive_picker.rs`** — the two main screens; both follow the same row convention (name/letter left, gradient usage bar + % + size right, single line per row, blank spacer line between rows).
 - **`theme.rs`** — the single source of colors/icons. Text hierarchy is communicated by `Modifier::BOLD` vs. regular weight on one text color, **not** by a gray scale — `Modifier::DIM` is deliberately never used anywhere in the UI (renders as illegible/near-invisible on several terminal color profiles). The usage-bar gradient (`gradient()`/`gradient_bar()`) is a continuous green→amber→red interpolation, not a 3-band step function, colored per-cell by position along the bar (a "heat-map ruler").
 - **`keys.rs`** — all key handling, dispatched by `App::mode`.
@@ -51,6 +63,10 @@ Selection highlighting in both list screens uses `List::highlight_style` with **
 ### Session-level scan cache (`src/ui/mod.rs`)
 
 `run_inner` keeps a `HashMap<PathBuf, CachedScan>` across drive-picker round-trips (not persisted to disk — cleared on process exit). Re-selecting an already-scanned path from the picker loads the cached `FsArena` instantly *and* kicks off a background re-scan on a fresh channel; the browsing loop drains that channel each tick and, on completion, swaps in the fresh arena and remaps the current browsing position into it via `FsArena::find_path()` (walks the new tree by matching path components, since `NodeId`s are just indices and aren't valid across two different arenas). Pressing `r` forces an immediate full rescan instead of waiting for the background one.
+
+### Elevation: per-run prompt, not always-admin (deliberate choice)
+
+The app does **not** carry a `requireAdministrator` manifest and does not require admin to start. This was evaluated and rejected: the only way to get standing elevated access without a UAC prompt on every launch is a scheduled-task trick (installer registers a task with `RunLevel=HighestAvailable`; shortcuts launch via `schtasks /run` instead of the exe directly, which Windows treats as pre-authorized and elevates silently). That's a real reduction in UAC protection — anything on the machine that can trigger that task also gets silent admin — so it was explicitly turned down in favor of the current behavior: `main.rs`'s `maybe_offer_elevation` / `ui/mod.rs`'s `offer_elevation_if_needed` + `draw_elevation_prompt` show a one-time "relaunch elevated (UAC)?" prompt only when the target is a whole NTFS drive and the process isn't already elevated; declining just falls back to the walker for that run. Don't reintroduce always-elevate (via manifest or scheduled task) without raising the tradeoff again explicitly — it's already been asked and answered once.
 
 ### Windows-only, GNU toolchain
 
