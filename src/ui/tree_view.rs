@@ -42,6 +42,18 @@ pub fn draw(f: &mut Frame, app: &App) {
     }
 }
 
+/// Regular-weight text: the one text color, no bold. Use for anything that isn't the single
+/// most important thing on its line.
+fn plain() -> Style {
+    Style::default().fg(theme::TEXT)
+}
+
+/// Bold text: same color as `plain()`, just heavier — this is how importance is signaled
+/// here, not by shading through a gray scale (see `theme` module docs).
+fn bold() -> Style {
+    Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)
+}
+
 fn themed_block(title: String) -> Block<'static> {
     Block::default()
         .style(Style::default().bg(theme::BG))
@@ -57,18 +69,18 @@ fn themed_block(title: String) -> Block<'static> {
 fn draw_header(f: &mut Frame, app: &App, area: Rect) {
     let node = &app.arena.nodes[app.current];
     let path = app.breadcrumb();
-    let sep = Span::styled(" │ ", Style::default().fg(theme::BORDER));
+    let sep = Span::styled(" │ ", plain());
     let title = Line::from(vec![
-        Span::styled(format!("{}", path.display()), Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("{}", path.display()), bold()),
         sep.clone(),
         Span::styled(format_size(node.size, DECIMAL), Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)),
-        Span::styled(" total", Style::default().fg(theme::SUBTEXT)),
+        Span::styled(" total", plain()),
         sep.clone(),
-        Span::styled(format!("{}", node.file_count), Style::default().fg(theme::TEXT)),
-        Span::styled(" items", Style::default().fg(theme::SUBTEXT)),
+        Span::styled(format!("{}", node.file_count), plain()),
+        Span::styled(" items", plain()),
         sep,
-        Span::styled("engine ", Style::default().fg(theme::SUBTEXT)),
-        Span::styled(app.engine_used, Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)),
+        Span::styled("engine ", plain()),
+        Span::styled(app.engine_used, bold()),
     ]);
     let header = Paragraph::new(title)
         .alignment(Alignment::Center)
@@ -93,7 +105,6 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
             let n = &app.arena.nodes[id];
             let frac = (n.size as f64 / parent_size as f64).clamp(0.0, 1.0);
             let filled = (frac * bar_width as f64).round() as usize;
-            let bar: String = "█".repeat(filled) + &"░".repeat(bar_width - filled);
 
             let icon = if n.is_reparse_point {
                 theme::ICON_REPARSE
@@ -103,21 +114,16 @@ fn draw_list(f: &mut Frame, app: &App, area: Rect) {
                 theme::ICON_FILE
             };
 
-            let color = theme::size_color(frac);
-            let line = Line::from(vec![
+            let mut spans = vec![
                 Span::raw(format!("{icon} ")),
-                Span::styled(
-                    format!("{:<width$}", truncate(&n.name, name_width), width = name_width),
-                    Style::default().fg(theme::TEXT),
-                ),
-                Span::styled(bar, Style::default().fg(color)),
-                Span::styled(format!(" {:>6.1}% ", frac * 100.0), Style::default().fg(theme::SUBTEXT)),
-                Span::styled(
-                    format!("{:>width$}", format_size(n.size, DECIMAL), width = SIZE_COL),
-                    Style::default().fg(theme::SUBTEXT).add_modifier(Modifier::BOLD),
-                ),
-            ]);
-            ListItem::new(line)
+                Span::styled(format!("{:<width$}", truncate(&n.name, name_width), width = name_width), plain()),
+            ];
+            spans.extend(theme::gradient_bar(filled, bar_width));
+            spans.push(Span::styled(format!(" {:>6.1}% ", frac * 100.0), plain()));
+            spans.push(Span::styled(format!("{:>width$}", format_size(n.size, DECIMAL), width = SIZE_COL), bold()));
+            // A blank spacer line under each row so bars/text don't visually collide between
+            // adjacent items — a little vertical breathing room per entry.
+            ListItem::new(vec![Line::from(spans), Line::from("")])
         })
         .collect();
 
@@ -143,7 +149,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         Mode::Info(_) => "press any key to close".to_string(),
         Mode::Browsing => app.status.clone().unwrap_or_else(|| {
             format!(
-                "↑/↓ move  →/Enter open  ←/Backspace up  b: drives  i: info  s: sort ({})  v: view ({})  /: filter  e: export  d: delete  q: quit",
+                "↑/↓ move  →/Enter open  ←/Backspace up  b: drives  i: info  o: explorer  s: sort ({})  v: view ({})  /: filter  e: export  d: delete  q: quit",
                 app.sort.label(),
                 app.view_width.label(),
             )
@@ -152,7 +158,7 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
     let style = if app.status.is_some() && matches!(app.mode, Mode::Browsing) {
         Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)
     } else {
-        Style::default().fg(theme::SUBTEXT)
+        plain()
     };
     let footer = Paragraph::new(text).style(style).alignment(Alignment::Center);
     f.render_widget(footer, area);
@@ -172,8 +178,8 @@ fn draw_info_popup(f: &mut Frame, app: &App, id: NodeId, area: Rect) {
         "File"
     };
 
-    let label = Style::default().fg(theme::SUBTEXT);
-    let value = Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD);
+    let label = plain();
+    let value = bold();
     let mut lines = vec![
         Line::from(vec![Span::styled("Name      ", label), Span::styled(n.name.clone(), value)]),
         Line::from(vec![Span::styled("Path      ", label), Span::styled(path.display().to_string(), value)]),

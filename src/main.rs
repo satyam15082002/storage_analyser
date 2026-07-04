@@ -2,6 +2,7 @@ mod drives;
 mod export;
 mod mft;
 mod model;
+mod open;
 mod privileges;
 mod recycle;
 mod scan;

@@ -52,6 +52,7 @@ fn handle_browsing(app: &mut App, key: KeyEvent) {
             }
         }
         KeyCode::Char('v') => app.view_width = app.view_width.toggled(),
+        KeyCode::Char('o') => open_selected(app),
         _ => {}
     }
 }
@@ -101,6 +102,17 @@ fn handle_confirm_delete(app: &mut App, key: KeyEvent) {
             app.mode = Mode::Browsing;
         }
         _ => app.mode = Mode::Browsing,
+    }
+}
+
+fn open_selected(app: &mut App) {
+    let (path, is_dir) = match app.selected_node() {
+        Some(id) => (app.arena.path_of(id), app.arena.nodes[id].is_dir),
+        None => (app.arena.path_of(app.current), true), // empty folder: open the folder itself
+    };
+    match crate::open::open_in_explorer(&path, is_dir) {
+        Ok(()) => app.status = Some(format!("Opened in Explorer: {}", path.display())),
+        Err(e) => app.status = Some(format!("Open failed: {e}")),
     }
 }
 

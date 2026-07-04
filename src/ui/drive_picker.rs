@@ -48,12 +48,25 @@ pub fn pick(terminal: &mut Term) -> Result<Option<DriveInfo>> {
     }
 }
 
-const MIN_BAR_WIDTH: usize = 8;
-const MAX_BAR_WIDTH: usize = 50;
-const LABEL_COL: usize = 22;
-const ICON_COL: usize = 3;
+// Same column convention as the contents list (tree_view): name left, bar + % + size right,
+// single line per row — one consistent visual language across both screens.
 const LETTER_COL: usize = 6; // "C:\  "
-const TRAILING_COL: usize = 46; // "  12.3 GB used, 45.6 GB free of 100.0 GB"
+const LABEL_COL: usize = 20;
+const PCT_COL: usize = 8;
+const SIZE_COL: usize = 24; // "267.38 GB / 358.20 GB"
+const MIN_BAR_WIDTH: usize = 8;
+const MAX_BAR_WIDTH: usize = 40;
+
+/// Regular-weight text: the one text color, no bold.
+fn plain() -> Style {
+    Style::default().fg(theme::TEXT)
+}
+
+/// Bold text: same color as `plain()`, just heavier — importance is signaled by weight, not
+/// by shading through a gray scale (see `theme` module docs).
+fn bold() -> Style {
+    Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)
+}
 
 fn themed_block(title: String) -> Block<'static> {
     Block::default()
@@ -77,41 +90,39 @@ fn draw(f: &mut ratatui::Frame, drives: &[DriveInfo], selected: usize) {
         .split(area);
 
     let header = Paragraph::new(" Select a drive to analyse ")
-        .style(Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD))
+        .style(plain())
         .alignment(Alignment::Center)
         .block(themed_block(format!(" {}  ·  {} ", super::APP_TITLE, super::APP_BYLINE)));
     f.render_widget(header, chunks[0]);
 
     let inner_width = chunks[1].width.saturating_sub(4) as usize;
-    let space_for_bar = inner_width.saturating_sub(ICON_COL + LETTER_COL + LABEL_COL + TRAILING_COL);
-    let bar_width = space_for_bar.clamp(MIN_BAR_WIDTH, MAX_BAR_WIDTH);
+    let bar_width = inner_width
+        .saturating_sub(LETTER_COL + LABEL_COL + PCT_COL + SIZE_COL)
+        .clamp(MIN_BAR_WIDTH, MAX_BAR_WIDTH);
 
     let items: Vec<ListItem> = drives
         .iter()
         .map(|d| {
             let frac = d.used_fraction().clamp(0.0, 1.0);
             let filled = (frac * bar_width as f64).round() as usize;
-            let bar: String = "█".repeat(filled) + &"░".repeat(bar_width - filled);
-            let color = theme::size_color(frac);
 
-            let line = Line::from(vec![
-                Span::raw(format!("{} ", theme::ICON_DRIVE)),
-                Span::styled(
-                    format!("{}:\\  {:<width$}", d.letter, d.label, width = LABEL_COL),
-                    Style::default().fg(theme::TEXT),
+            let mut spans = vec![
+                Span::styled(format!("{}:\\  ", d.letter), Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("{:<width$}", truncate(&d.label, LABEL_COL - 1), width = LABEL_COL), plain()),
+            ];
+            spans.extend(theme::gradient_bar(filled, bar_width));
+            spans.push(Span::styled(format!(" {:>5.1}% ", frac * 100.0), plain()));
+            spans.push(Span::styled(
+                format!(
+                    "{:>width$}",
+                    format!("{} / {}", format_size(d.used_bytes(), DECIMAL), format_size(d.total_bytes, DECIMAL)),
+                    width = SIZE_COL
                 ),
-                Span::styled(bar, Style::default().fg(color)),
-                Span::styled(
-                    format!(
-                        "  {} used, {} free of {}",
-                        format_size(d.used_bytes(), DECIMAL),
-                        format_size(d.free_bytes, DECIMAL),
-                        format_size(d.total_bytes, DECIMAL)
-                    ),
-                    Style::default().fg(theme::SUBTEXT),
-                ),
-            ]);
-            ListItem::new(line)
+                bold(),
+            ));
+            // A blank spacer line under each row so bars/text don't visually collide between
+            // adjacent drives — a little vertical breathing room per entry.
+            ListItem::new(vec![Line::from(spans), Line::from("")])
         })
         .collect();
 
@@ -123,11 +134,21 @@ fn draw(f: &mut ratatui::Frame, drives: &[DriveInfo], selected: usize) {
         .block(themed_block(" drives ".to_string()))
         // No `.fg(...)` here: `List` patches this style onto already-rendered cells, and any
         // fg set here would stomp the bar's own size-color, per-span, on the selected row.
-        .highlight_style(Style::default().bg(theme::BG_SELECTED).add_modifier(Modifier::BOLD));
+        .highlight_style(Style::default().bg(theme::BG_SELECTED));
     f.render_stateful_widget(list, chunks[1], &mut state);
 
     let footer = Paragraph::new("↑/↓ select  Enter: analyse  q: quit")
-        .style(Style::default().fg(theme::SUBTEXT))
+        .style(plain())
         .alignment(Alignment::Center);
     f.render_widget(footer, chunks[2]);
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        let mut t: String = s.chars().take(max.saturating_sub(1)).collect();
+        t.push('…');
+        t
+    }
 }

@@ -94,8 +94,10 @@ fn run_inner(terminal: &mut Term, path: Option<PathBuf>, engine: Engine) -> Resu
         scan::spawn(target, engine, tx);
 
         let mut progress: u64 = 0;
+        let mut frame: u64 = 0;
         let outcome = loop {
-            terminal.draw(|f| draw_progress(f, progress))?;
+            terminal.draw(|f| draw_progress(f, progress, frame))?;
+            frame += 1;
 
             if event::poll(Duration::from_millis(80))? {
                 if let Event::Key(key) = event::read()? {
@@ -174,6 +176,7 @@ fn offer_elevation_if_needed(terminal: &mut Term, path: &std::path::Path, engine
 
 fn draw_elevation_prompt(f: &mut ratatui::Frame, path: &std::path::Path) {
     use ratatui::style::Modifier;
+    use ratatui::text::{Line, Span};
 
     f.render_widget(Block::default().style(Style::default().bg(theme::BG)), f.area());
     let area = content_area(f.area());
@@ -182,51 +185,97 @@ fn draw_elevation_prompt(f: &mut ratatui::Frame, path: &std::path::Path) {
         .constraints([Constraint::Percentage(40), Constraint::Length(9), Constraint::Percentage(40)])
         .split(area);
 
-    let text = format!(
-        "'{}' is a whole NTFS drive, but this process isn't elevated,\nso the fast MFT scan engine can't run — it would fall back to a\nmuch slower full directory walk.\n\nRelaunch elevated (UAC prompt) for a fast scan instead? (y/N)",
-        path.display()
+    let body = Style::default().fg(theme::TEXT);
+    let lines = vec![
+        Line::from(vec![
+            Span::styled(format!("'{}'", path.display()), Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD)),
+            Span::styled(" is a whole NTFS drive, but this process isn't elevated,", body),
+        ]),
+        Line::styled("so the fast MFT scan engine can't run — it would fall back to a", body),
+        Line::styled("much slower full directory walk.", body),
+        Line::from(""),
+        Line::styled(
+            "Relaunch elevated (UAC prompt) for a fast scan instead? (y/N)",
+            Style::default().fg(theme::TEXT).add_modifier(Modifier::BOLD),
+        ),
+    ];
+    let p = Paragraph::new(lines).alignment(Alignment::Center).block(
+        Block::default()
+            .style(Style::default().bg(theme::BG))
+            .borders(Borders::ALL)
+            .border_type(theme::PANEL_BORDER)
+            .border_style(Style::default().fg(theme::ACCENT))
+            .title(" Elevation recommended ")
+            .title_style(Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD))
+            .title_alignment(Alignment::Center)
+            .padding(Padding::uniform(1)),
     );
-    let p = Paragraph::new(text)
-        .style(Style::default().fg(theme::TEXT))
-        .alignment(Alignment::Center)
-        .block(
-            Block::default()
-                .style(Style::default().bg(theme::BG))
-                .borders(Borders::ALL)
-                .border_type(theme::PANEL_BORDER)
-                .border_style(Style::default().fg(theme::ACCENT))
-                .title(" Elevation recommended ")
-                .title_style(Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD))
-                .title_alignment(Alignment::Center)
-                .padding(Padding::uniform(1)),
-        );
     f.render_widget(p, layout[1]);
 }
 
-fn draw_progress(f: &mut ratatui::Frame, count: u64) {
+fn draw_progress(f: &mut ratatui::Frame, count: u64, frame: u64) {
     use ratatui::style::Modifier;
+    use ratatui::text::{Line, Span};
 
     f.render_widget(Block::default().style(Style::default().bg(theme::BG)), f.area());
     let area = content_area(f.area());
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(45), Constraint::Length(7), Constraint::Percentage(45)])
+        .constraints([Constraint::Percentage(45), Constraint::Length(8), Constraint::Percentage(45)])
         .split(area);
 
-    let text = format!("Scanning… {} entries processed\n\n(press q to cancel)", count);
-    let p = Paragraph::new(text)
-        .style(Style::default().fg(theme::TEXT))
-        .alignment(Alignment::Center)
-        .block(
-            Block::default()
-                .style(Style::default().bg(theme::BG))
-                .borders(Borders::ALL)
-                .border_type(theme::PANEL_BORDER)
-                .border_style(Style::default().fg(theme::ACCENT))
-                .title(format!(" {APP_TITLE} "))
-                .title_style(Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD))
-                .title_alignment(Alignment::Center)
-                .padding(Padding::uniform(1)),
-        );
+    let lines = vec![
+        Line::from(vec![
+            Span::styled("Scanning… ", Style::default().fg(theme::TEXT)),
+            Span::styled(format!("{count}"), Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)),
+            Span::styled(" entries processed", Style::default().fg(theme::TEXT)),
+        ]),
+        Line::from(indeterminate_bar(30, frame)),
+        Line::from(""),
+        Line::styled("(press q to cancel)", Style::default().fg(theme::TEXT)),
+    ];
+    let p = Paragraph::new(lines).alignment(Alignment::Center).block(
+        Block::default()
+            .style(Style::default().bg(theme::BG))
+            .borders(Borders::ALL)
+            .border_type(theme::PANEL_BORDER)
+            .border_style(Style::default().fg(theme::ACCENT))
+            .title(format!(" {APP_TITLE} "))
+            .title_style(Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD))
+            .title_alignment(Alignment::Center)
+            .padding(Padding::uniform(1)),
+    );
     f.render_widget(p, layout[1]);
+}
+
+/// An indeterminate progress bar (no known total to measure against, since the walker
+/// engine doesn't know the file count up front): a gradient "ruler" — green fading through
+/// amber into red across its width — with a bright head sweeping back and forth over it,
+/// same idea as a classic KITT/Cylon scanner. Purely decorative (it doesn't mean "50% done"),
+/// but it reads as "still actively working" far better than a static line of text does.
+/// Deliberately doesn't use `Modifier::DIM` for the trailing (non-head) cells — on some
+/// terminal color profiles DIM renders as effectively invisible rather than a subtle fade,
+/// so the "dimmer" look here comes entirely from the gradient's own darker colors.
+fn indeterminate_bar(width: usize, frame: u64) -> Vec<ratatui::text::Span<'static>> {
+    use ratatui::style::Modifier;
+    use ratatui::text::Span;
+
+    if width < 2 {
+        return Vec::new();
+    }
+    let period = (width as u64 - 1) * 2;
+    let pos_in_period = frame % period.max(1);
+    let head = if pos_in_period < width as u64 { pos_in_period } else { period - pos_in_period };
+
+    (0..width)
+        .map(|i| {
+            let pos = i as f64 / (width - 1) as f64;
+            let color = theme::gradient(pos);
+            if i as u64 == head {
+                Span::styled("█", Style::default().fg(theme::TEXT).bg(color).add_modifier(Modifier::BOLD))
+            } else {
+                Span::styled("█", Style::default().fg(color))
+            }
+        })
+        .collect()
 }
