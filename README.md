@@ -4,6 +4,8 @@ _by Satyam Tamrakar_
 
 A high-performance Windows storage analyzer: find out what's taking up space on your disks, fast. Scans an entire NTFS drive in seconds by reading the Master File Table directly (the same technique tools like WizTree use), with a portable recursive-walk fallback for subfolders, non-NTFS volumes, or non-elevated sessions.
 
+[Watch the demo](media/demo.mov)
+
 ## Features
 
 - **Two scan engines, chosen automatically**: a direct NTFS `$MFT` reader for whole-drive scans (elevated + NTFS required), and a parallel recursive walker for everything else.
