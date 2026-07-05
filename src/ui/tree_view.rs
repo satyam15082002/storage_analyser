@@ -40,6 +40,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     if let Mode::Info(id) = app.mode {
         draw_info_popup(f, app, id, area);
     }
+    if let Mode::AppInfo = app.mode {
+        draw_app_info_popup(f, area);
+    }
 }
 
 /// Regular-weight text: the one text color, no bold. Use for anything that isn't the single
@@ -147,9 +150,10 @@ fn draw_footer(f: &mut Frame, app: &App, area: Rect) {
         Mode::Filtering => format!("Filter: {}_", app.filter),
         Mode::ConfirmDelete => "Delete selected item to Recycle Bin? (y/n)".to_string(),
         Mode::Info(_) => "press any key to close".to_string(),
+        Mode::AppInfo => "press any key to close".to_string(),
         Mode::Browsing => app.status.clone().unwrap_or_else(|| {
             format!(
-                "↑/↓ move  →/Enter open  ←/Backspace up  b: drives  r: refresh  i: info  o: explorer  s: sort ({})  v: view ({})  /: filter  e: export  d: delete  q: quit",
+                "↑/↓ move  →/Enter open  ←/Backspace up  b: drives  r: refresh  i: info  <space>i: app storage  o: explorer  s: sort ({})  v: view ({})  /: filter  e: export  d: delete  q: quit",
                 app.sort.label(),
                 app.view_width.label(),
             )
@@ -202,6 +206,36 @@ fn draw_info_popup(f: &mut Frame, app: &App, id: NodeId, area: Rect) {
     let popup = centered_rect(70, 50, area);
     f.render_widget(Clear, popup);
     let block = themed_block(" Details (any key to close) ".to_string()).padding(Padding::uniform(1));
+    let text = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+    f.render_widget(text, popup);
+}
+
+fn draw_app_info_popup(f: &mut Frame, area: Rect) {
+    let info = super::app_storage::gather();
+
+    let label = plain();
+    let value = bold();
+    let total = info.exe_size + info.cache_size;
+    let lines = vec![
+        Line::from(vec![Span::styled("Executable   ", label), Span::styled(info.exe_path.display().to_string(), value)]),
+        Line::from(vec![Span::styled("Exe size     ", label), Span::styled(format_size(info.exe_size, DECIMAL), value)]),
+        Line::from(""),
+        Line::from(vec![Span::styled("Scan cache   ", label), Span::styled(info.cache_dir.display().to_string(), value)]),
+        Line::from(vec![
+            Span::styled("Cache size   ", label),
+            Span::styled(format_size(info.cache_size, DECIMAL), value),
+            Span::styled(format!("  ({} scan{})", info.cache_file_count, if info.cache_file_count == 1 { "" } else { "s" }), label),
+        ]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Total        ", label),
+            Span::styled(format_size(total, DECIMAL), Style::default().fg(theme::ACCENT).add_modifier(Modifier::BOLD)),
+        ]),
+    ];
+
+    let popup = centered_rect(70, 50, area);
+    f.render_widget(Clear, popup);
+    let block = themed_block(" Storage Analyzer's own disk usage (any key to close) ".to_string()).padding(Padding::uniform(1));
     let text = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
     f.render_widget(text, popup);
 }

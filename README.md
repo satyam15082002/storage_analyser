@@ -66,6 +66,7 @@ Run with no arguments to open the interactive drive picker. Pass a path to scan 
 | `v` | Toggle compact/wide view width |
 | `/` | Filter by name |
 | `i` | Show details popup for the selected entry |
+| `<space>` then `i` | Show how much disk space Storage Analyzer itself is using (exe + scan cache) |
 | `o` | Open selected entry in Windows Explorer |
 | `d` | Send selected entry to the Recycle Bin (reversible) |
 | `e` | Export the current view to CSV |

@@ -32,6 +32,9 @@ pub enum Mode {
     Filtering,
     ConfirmDelete,
     Info(NodeId),
+    /// Shows how much disk space Storage Analyzer itself is using (its exe + the
+    /// persistent scan-cache directory), entered via the `<space> i` chord.
+    AppInfo,
 }
 
 /// Whether the browsing view is capped to a centered, web-style max-width column
@@ -75,6 +78,10 @@ pub struct App {
     /// cached result) instead of quitting outright.
     pub want_rescan: bool,
     pub view_width: ViewWidth,
+    /// Set for one key press after `<space>` in `Mode::Browsing`, so the next key can
+    /// complete the `<space> i` chord (app storage info) — cleared after any key regardless
+    /// of whether it completed the chord.
+    pub awaiting_leader: bool,
 }
 
 impl App {
@@ -93,6 +100,7 @@ impl App {
             want_drive_picker: false,
             want_rescan: false,
             view_width: ViewWidth::Compact,
+            awaiting_leader: false,
         }
     }
 

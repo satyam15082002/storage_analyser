@@ -1,10 +1,12 @@
 use std::path::{Path, PathBuf};
 
+use serde::{Deserialize, Serialize};
+
 /// Index into `FsArena::nodes`. `usize::MAX` is used as a sentinel for "no parent".
 pub type NodeId = usize;
 pub const NO_PARENT: NodeId = usize::MAX;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FsNode {
     pub name: String,
     /// Own size for files; aggregated (recursive) size for directories once `finalize` has run.
@@ -37,7 +39,7 @@ impl FsNode {
 
 /// Arena-based filesystem tree. Using indices instead of `Rc<RefCell<_>>` keeps the
 /// bottom-up size aggregation a single cache-friendly pass over a flat `Vec`.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct FsArena {
     pub nodes: Vec<FsNode>,
     pub root: NodeId,

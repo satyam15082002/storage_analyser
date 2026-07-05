@@ -1,4 +1,6 @@
 mod app;
+mod app_storage;
+mod disk_cache;
 mod drive_picker;
 mod keys;
 mod theme;
@@ -73,9 +75,9 @@ fn restore_terminal(terminal: &mut Term) -> Result<()> {
     Ok(())
 }
 
-/// A previously completed scan, kept around for the rest of the session so re-selecting the
-/// same drive/folder from the picker is instant instead of re-scanning from scratch. Session
-/// only (not persisted to disk) — a fresh run of the app always scans fresh at least once.
+/// A previously completed scan, kept around so re-selecting the same drive/folder from the
+/// picker (or re-targeting it on the next process launch, via `disk_cache`) is instant
+/// instead of re-scanning from scratch.
 struct CachedScan {
     arena: crate::model::FsArena,
     engine_used: &'static str,
@@ -96,7 +98,11 @@ fn run_inner(terminal: &mut Term, path: Option<PathBuf>, engine: Engine) -> Resu
             },
         };
 
-        let (mut app, mut background_rx) = if let Some(cached) = cache.remove(&target) {
+        let disk_hit = if cache.contains_key(&target) { None } else { disk_cache::load(&target) };
+
+        let (mut app, mut background_rx) = if let Some(cached) = cache.remove(&target).or_else(|| {
+            disk_hit.map(|(arena, engine_used)| CachedScan { arena, engine_used })
+        }) {
             let app = App::new(cached.arena, cached.engine_used);
 
             // Kick off a fresh scan right away so stale cached data gets silently swapped
@@ -145,6 +151,7 @@ fn run_inner(terminal: &mut Term, path: Option<PathBuf>, engine: Engine) -> Resu
                 }
             };
             let outcome = outcome?;
+            disk_cache::save(&target, &outcome.arena, outcome.engine_used);
             (App::new(outcome.arena, outcome.engine_used), None)
         };
 
@@ -174,6 +181,7 @@ fn run_inner(terminal: &mut Term, path: Option<PathBuf>, engine: Engine) -> Resu
                         app.arena = outcome.arena;
                         app.engine_used = outcome.engine_used;
                         app.selected = 0;
+                        disk_cache::save(&target, &app.arena, app.engine_used);
                     }
                     background_rx = None;
                 }

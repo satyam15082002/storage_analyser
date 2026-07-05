@@ -11,12 +11,25 @@ pub fn handle_key(app: &mut App, key: KeyEvent) {
         Mode::Filtering => handle_filtering(app, key),
         Mode::ConfirmDelete => handle_confirm_delete(app, key),
         Mode::Info(_) => handle_info(app, key),
+        Mode::AppInfo => handle_app_info(app, key),
         Mode::Browsing => handle_browsing(app, key),
     }
 }
 
 fn handle_browsing(app: &mut App, key: KeyEvent) {
     app.status = None;
+
+    // Completes (or cancels) the `<space> i` chord: `<space>` alone just arms it, and
+    // whatever key comes next either opens the app-storage popup ('i') or is swallowed as a
+    // cancel — it doesn't also fall through to its normal browsing action.
+    if app.awaiting_leader {
+        app.awaiting_leader = false;
+        if let KeyCode::Char('i') = key.code {
+            app.mode = Mode::AppInfo;
+        }
+        return;
+    }
+
     match key.code {
         KeyCode::Char('q') | KeyCode::Esc => app.should_quit = true,
         KeyCode::Up | KeyCode::Char('k') => app.move_selection(-1),
@@ -54,12 +67,18 @@ fn handle_browsing(app: &mut App, key: KeyEvent) {
         KeyCode::Char('v') => app.view_width = app.view_width.toggled(),
         KeyCode::Char('o') => open_selected(app),
         KeyCode::Char('r') => app.rescan(),
+        KeyCode::Char(' ') => app.awaiting_leader = true,
         _ => {}
     }
 }
 
 fn handle_info(app: &mut App, _key: KeyEvent) {
     // Any key dismisses the info popup.
+    app.mode = Mode::Browsing;
+}
+
+fn handle_app_info(app: &mut App, _key: KeyEvent) {
+    // Any key dismisses the app-storage popup.
     app.mode = Mode::Browsing;
 }
 
